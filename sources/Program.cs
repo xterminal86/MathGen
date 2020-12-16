@@ -32,8 +32,8 @@ namespace MathGen
 
       Console.WriteLine($"Maximum depth: {maxDepth}\n");
 
-      Main m = new Main(maxDepth);
-      m.Run();
+      ExpressionGenerator g = new ExpressionGenerator(maxDepth);
+      g.Run();
     }
   }
 }

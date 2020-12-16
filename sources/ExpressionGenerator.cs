@@ -34,7 +34,7 @@ using System.Text;
 
 namespace MathGen.sources
 {
-  class Main
+  class ExpressionGenerator
   {
     int _maxDepth = 1;
 
@@ -60,7 +60,7 @@ namespace MathGen.sources
       "-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9",
     };
 
-    bool IsTerminal()
+    bool FiftyFifty()
     {
       return (_random.Next(0, 2) == 0);
     }
@@ -74,7 +74,7 @@ namespace MathGen.sources
     {      
       currentNode.Character = GetRandomCharacter(_operators);
 
-      currentNode.SurroundWithBraces = (_random.Next(0, 2) == 0);
+      currentNode.SurroundWithBraces = FiftyFifty();
 
       currentNode.LeftE  = new ExpressionNode(currentNode);
       currentNode.RightE = new ExpressionNode(currentNode);
@@ -86,21 +86,7 @@ namespace MathGen.sources
       currentNode.RightE.Depth = currentDepth + 1;
 
       _toProcess.Push(new KeyValuePair<ExpressionNode, int>(currentNode.LeftE, currentDepth + 1));
-      _toProcess.Push(new KeyValuePair<ExpressionNode, int>(currentNode.RightE, currentDepth + 1));
-
-      // It doesn't seem to have any effect on the outcome for _maxDepth > 2
-      /*       
-      if (_random.Next(0, 2) == 0)
-      {
-        _toProcess.Push(new KeyValuePair<ExpressionNode, int>(currentNode.LeftE, currentDepth + 1));
-        _toProcess.Push(new KeyValuePair<ExpressionNode, int>(currentNode.RightE, currentDepth + 1));
-      }
-      else
-      {
-        _toProcess.Push(new KeyValuePair<ExpressionNode, int>(currentNode.RightE, currentDepth + 1));
-        _toProcess.Push(new KeyValuePair<ExpressionNode, int>(currentNode.LeftE, currentDepth + 1));
-      }
-      */
+      _toProcess.Push(new KeyValuePair<ExpressionNode, int>(currentNode.RightE, currentDepth + 1));      
     }
 
     Stack<KeyValuePair<ExpressionNode, int>> _toProcess = new Stack<KeyValuePair<ExpressionNode, int>>();
@@ -111,14 +97,50 @@ namespace MathGen.sources
       ExpressionNode currentNode = pair.Key;
       int currentDepth = pair.Value;
 
-      _maxDepthReached = (currentDepth >= _maxDepth);
+      // currentDepth is the depth of current node, which may be still
+      // less than _maxDepth. In such case we still could either generate an expression
+      // or terminate the node.
+      //
+      // For example, we start from '^'. Consider _maxDepth = 2.
+      //
+      //          ^         (depth 0)
+      //    LeftE   RightE  (depth 1)
+      //
+      // Then we push LeftE, RightE onto the stack. (see Run())
+      // At frist step RightE will be popped from the stack.
+      // Now, suppose it is terminated into '6'. 
+      //
+      //          ^         (depth 0)
+      //    LeftE   6       (depth 1)
+      //
+      // Then, according to the code, next item from the stack (LeftE) will be forced 
+      // to become an expression, because we need to guarantee maximum depth 
+      // for at least one branch.
+      // And since braces can only surround an expression, we will never get
+      // situation when there is a number on the left and braced expression on the right.
+      //
+      // On the other hand, if RightE was made into expression on the first step,
+      //
+      //           ^         (depth 0)
+      //    LeftE    *       (depth 1)
+      //           3   4     (depth 2)
+      //                
+      // after we unwind the stack container back to get the LeftE that was pushed
+      // after root node was created, its depth is still less than _maxDepth
+      // and it still can either become a terminal or an expression.
+      //
+      // To ensure this scenario we use the following one-time flip check
+
+      if (!_maxDepthReached && (currentDepth >= _maxDepth))
+      {
+        _maxDepthReached = true;
+      }
 
       if (!_maxDepthReached)
       {
         // If there are no items to process 
         // (e.g. while unwinding root on first step we terminated left branch)
-        // and maximum depth not yet reached, 
-        // we force generate new expression.
+        // and maximum depth is not yet reached, we force generate new expression.
         //
         if (_toProcess.Count == 0)
         {
@@ -127,7 +149,7 @@ namespace MathGen.sources
         else
         {
           // Standard behaviour otherwise
-          if (IsTerminal())
+          if (FiftyFifty())
           {
             currentNode.Character = GetRandomCharacter(_terminals);
           }
@@ -139,8 +161,25 @@ namespace MathGen.sources
       }
       else
       {
-        // If we hit the maximum depth already, terminate the expression
-        currentNode.Character = GetRandomCharacter(_terminals);
+        // In case current node's depth is less than _maxDepth, but
+        // _maxDepth was reached nonetheless, we still should maintain
+        // standard behaviour of node generation
+        if (currentDepth < _maxDepth)
+        {
+          if (FiftyFifty())
+          {
+            CreateNewExpression(currentNode, currentDepth);
+          }
+          else
+          {
+            currentNode.Character = GetRandomCharacter(_terminals);
+          }
+        }
+        else
+        {
+          // Otherwise just terminate it
+          currentNode.Character = GetRandomCharacter(_terminals);
+        }
       }
     }
 
@@ -160,43 +199,9 @@ namespace MathGen.sources
 
       root.RightE.Depth = 1;
       root.LeftE.Depth  = 1;
-
-      // For _maxDepth = 2 in case when you have terminated branch on first step, 
-      // the position of braced expression depends on order of starting elements 
-      // pushed onto the stack.
-      //
-      // I.e. if root is '^' then 
-      //
-      // (1 + 2) ^ 3 or 1 + (2 ^ 3)
-      //
-      // depends on whether RightE or LeftE was pushed onto the stack last.
-      //
-      // For example, we start from '^', then we push LeftE, RightE onto the stack.
-      // In Process() RightE will be popped from the stack.
-      // Now, suppose it is terminated into '6'. 
-      // Then, according to the code, next item from the stack (LeftE) will be forced 
-      // to become an expression, because we need to guarantee maximum depth 
-      // for at least one branch.
-      // And since braces can only surround an expression, we will never get
-      // situation when there is a number on the left and braced expression on the right.
-      //
-      // Same thing will happen if the order of initial elements pushed is reversed,
-      // but the whole situation will be reversed as well, i.e. we will never get
-      // number on the right and braced expression on the left.
-      //
-      // So to avoid this, we randomize pushing of starting elements.
-      //
-      if (_random.Next(0, 2) == 0)
-      {
-        _toProcess.Push(new KeyValuePair<ExpressionNode, int>(root.LeftE, 1));
-        _toProcess.Push(new KeyValuePair<ExpressionNode, int>(root.RightE, 1));
-
-      }
-      else
-      {
-        _toProcess.Push(new KeyValuePair<ExpressionNode, int>(root.RightE, 1));
-        _toProcess.Push(new KeyValuePair<ExpressionNode, int>(root.LeftE, 1));
-      }
+                 
+      _toProcess.Push(new KeyValuePair<ExpressionNode, int>(root.LeftE, 1));
+      _toProcess.Push(new KeyValuePair<ExpressionNode, int>(root.RightE, 1));
 
       while (_toProcess.Count != 0)
       {
@@ -243,6 +248,7 @@ namespace MathGen.sources
           // on trying to access LeftE and RIghtE, since they're null.
           // So we either don't do anything here, if they're null, or conditionalize
           // everything in the 'else' branch. 
+          //
           // I preferred the former to keep code kinda pretty and concise.
           //
           if (node.LeftE != null)
@@ -301,7 +307,7 @@ namespace MathGen.sources
       Console.WriteLine("\n");
     }
 
-    public Main(int maxDepth)
+    public ExpressionGenerator(int maxDepth)
     {
       _maxDepth = maxDepth;
     }
